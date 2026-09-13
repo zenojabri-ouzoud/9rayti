@@ -26,8 +26,6 @@ import base64
 from typing import Optional, List
 from enum import Enum
 
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 import google.generativeai as genai
 from dotenv import load_dotenv
