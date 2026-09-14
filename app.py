@@ -12,9 +12,7 @@ import io
 import time
 from PIL import Image
 import streamlit as st
-from google import genai
-from google.genai import types
-from dotenv import load_dotenv
+
 
 # ═══════════════════════════════════════════════════════════════════
 # ⚙️ الإعدادات
