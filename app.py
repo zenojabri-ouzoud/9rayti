@@ -1,20 +1,23 @@
 """
 ═══════════════════════════════════════════════════════════════════
-   🎓 9rayti - Application de révision pour collégiens marocains
-   Powered by Google Gemini (nouvelle API google-genai) 🤖
+   🎓 9rayti - تطبيق المراجعة لتلاميذ الإعدادي بالمغرب
+   Powered by Google Gemini 🤖
 ═══════════════════════════════════════════════════════════════════
-🚀 LANCEMENT : streamlit run app.py
+🚀 التشغيل : streamlit run app.py
 ═══════════════════════════════════════════════════════════════════
 """
 
 import os
+import io
 import time
 from PIL import Image
 import streamlit as st
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 
 # ═══════════════════════════════════════════════════════════════════
-# ⚙️ CONFIGURATION
+# ⚙️ الإعدادات
 # ═══════════════════════════════════════════════════════════════════
 
 st.set_page_config(
@@ -38,72 +41,71 @@ GEMINI_API_KEY = get_config("GEMINI_API_KEY")
 MODEL_NAME = get_config("MODEL_NAME", "gemini-2.0-flash")
 
 if not GEMINI_API_KEY:
-    st.error("❌ Clé GEMINI_API_KEY manquante !")
-    st.info("🔑 Obtiens une clé gratuite : https://aistudio.google.com/app/apikey")
-    st.code("GEMINI_API_KEY=AIzaSy...ta_clé...", language="bash")
-    st.info("📝 Crée un fichier `.env` à la racine du projet.")
+    st.error("❌ مفتاح GEMINI_API_KEY غير موجود !")
+    st.info("🔑 احصل على مفتاح مجاني : https://aistudio.google.com/app/apikey")
+    st.code("GEMINI_API_KEY=AIzaSy...المفتاح...", language="bash")
+    st.info("📝 أنشئ ملف `.env` في جذر المشروع.")
     st.stop()
 
-# Nouveau client Gemini
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 📚 PROMPTS DES 8 MATIÈRES
+# 📚 البرومبتات للمواد الثمانية
 # ═══════════════════════════════════════════════════════════════════
 
 SYSTEM_PROMPT = """
-Tu es un professeur expérimenté au collège au Maroc.
-Tu aides les élèves de 1ère, 2ème et 3ème année collège.
-Tu réponds toujours :
-- De manière claire et pédagogique
-- Structurée avec des emojis
-- Adaptée au niveau de l'élève
-- En respectant le programme officiel marocain
-- Dans la langue demandée
+أنت أستاذ متمرس في التعليم الثانوي الإعدادي بالمغرب.
+تساعد التلاميذ في السنة الأولى والثانية والثالثة إعدادي.
+تجيب دائما :
+- بطريقة واضحة وبيداغوجية
+- منظمة مع رموز تعبيرية
+- ملائمة لمستوى التلميذ
+- وفق المقرر الرسمي المغربي
+- باللغة المطلوبة
 """
 
 PROMPT_MATH = """
-Tu es un professeur de **Mathématiques** au collège au Maroc.
-Niveau : {niveau}
-Langue : {langue}
+أنت أستاذ **الرياضيات** في الإعدادي بالمغرب.
+المستوى : {niveau}
+اللغة : {langue}
 
-📚 **Exercice** :
+📚 **التمرين** :
 {contenu}
 
-Réponds avec cette structure :
+أجب بهذه البنية :
 
-## 1. 📝 Énoncé reformulé
-## 2. 📊 Données
-## 3. 🎯 Ce qu'on cherche
-## 4. 🧮 Méthode
-## 5. ✏️ Résolution étape par étape
-## 6. ✅ Réponse finale
-## 7. 🔍 Vérification
-## 8. 💡 Conseil
-## 9. 📚 Cours lié
+## 1. 📝 إعادة صياغة التمرين
+## 2. 📊 المعطيات
+## 3. 🎯 المطلوب
+## 4. 🧮 الطريقة
+## 5. ✏️ الحل خطوة بخطوة
+## 6. ✅ الجواب النهائي
+## 7. 🔍 التحقق
+## 8. 💡 نصيحة
+## 9. 📚 الدرس المرتبط
 
-⚠️ Utilise : × ÷ √ ² ³ π ≠ ≤ ≥
+⚠️ استعمل : × ÷ √ ² ³ π ≠ ≤ ≥
 """
 
 PROMPT_PHYSIQUE = """
-Tu es un professeur de **Physique-Chimie** au collège au Maroc.
-Niveau : {niveau}
-Langue : {langue}
+أنت أستاذ **الفيزياء والكيمياء** في الإعدادي بالمغرب.
+المستوى : {niveau}
+اللغة : {langue}
 
-📚 **Exercice** :
+📚 **التمرين** :
 {contenu}
 
-## 1. 📝 Énoncé
-## 2. 📊 Données (avec UNITÉS)
-## 3. 🎯 Grandeur cherchée
-## 4. 📐 Formule
-## 5. ✏️ Calcul étape par étape
-## 6. ✅ Résultat avec unité
-## 7. 🔍 Vérification
-## 8. 💡 Explication
-## 9. ⚠️ Pièges à éviter
-## 10. 📚 Cours lié
+## 1. 📝 التمرين
+## 2. 📊 المعطيات (مع الوحدات)
+## 3. 🎯 المقدار المطلوب
+## 4. 📐 الصيغة
+## 5. ✏️ الحساب خطوة بخطوة
+## 6. ✅ النتيجة مع الوحدة
+## 7. 🔍 التحقق
+## 8. 💡 شرح الظاهرة
+## 9. ⚠️ أخطاء يجب تجنبها
+## 10. 📚 الدرس المرتبط
 """
 
 PROMPT_FRANCAIS = """
@@ -143,27 +145,27 @@ PROMPT_ARABE = """
 ## 1. 📝 القاعدة
 ## 2. ✏️ الإعراب
 ## 3. ✅ الجواب
-## 4. 💡 حيلة
+## 4. 💡 حيلة للحفظ
 
-**الصرف :**
-## 1. 📝 الوزن
+**الصرف والتحويل :**
+## 1. 📝 الوزن الصرفي
 ## 2. ✏️ التحويل
 ## 3. ✅ الجواب
 
 **البلاغة :**
-## 1. 📝 الصورة
+## 1. 📝 الصورة البلاغية
 ## 2. ✏️ الشرح
 ## 3. ✅ الجواب
 
-**التعبير :**
+**التعبير والإنشاء :**
 ## 1. 📋 التصميم
 ## 2. ✍️ الإنشاء
-## 3. 💡 المفردات
+## 3. 💡 المفردات الغنية
 
 **القراءة :**
 ## 1. 📖 التلخيص
 ## 2. 🔍 الأجوبة
-## 3. 💡 المفردات
+## 3. 💡 شرح المفردات
 
 أجب بالعربية الفصحى.
 """
@@ -199,22 +201,22 @@ Language : {langue}
 """
 
 PROMPT_SVT = """
-Tu es un professeur de **SVT** au collège au Maroc.
-Niveau : {niveau}
-Langue : {langue}
+أنت أستاذ **علوم الحياة والأرض** في الإعدادي بالمغرب.
+المستوى : {niveau}
+اللغة : {langue}
 
-📚 **Exercice** :
+📚 **التمرين** :
 {contenu}
 
-## 1. 📝 Énoncé
-## 2. 🔬 Observations
-## 3. 🎯 Problème
-## 4. 💡 Hypothèses
-## 5. 📊 Analyse
-## 6. ✅ Conclusion
-## 7. 🌍 Lien avec le Maroc
-## 8. 📚 Cours lié
-## 9. ⚠️ Erreurs fréquentes
+## 1. 📝 التمرين
+## 2. 🔬 الملاحظات
+## 3. 🎯 الإشكال
+## 4. 💡 الفرضيات
+## 5. 📊 التحليل
+## 6. ✅ الاستنتاج
+## 7. 🌍 الربط مع المغرب
+## 8. 📚 الدرس المرتبط
+## 9. ⚠️ أخطاء شائعة
 """
 
 PROMPT_IJTIMA3IYAT = """
@@ -225,12 +227,12 @@ PROMPT_IJTIMA3IYAT = """
 {contenu}
 
 **التاريخ :**
-## 1. 📅 السياق
+## 1. 📅 السياق التاريخي
 ## 2. 👥 الأطراف
 ## 3. 🔍 الأسباب
 ## 4. 📊 الأحداث
 ## 5. ✅ النتائج
-## 6. 🇲🇦 الرابط مع المغرب
+## 6. 🇲🇦 الربط مع المغرب
 
 **الجغرافيا :**
 ## 1. 🌍 الموقع
@@ -238,10 +240,10 @@ PROMPT_IJTIMA3IYAT = """
 ## 3. 🔍 التحليل
 ## 4. 💡 الخلاصة
 
-**المواطنة :**
+**التربية على المواطنة :**
 ## 1. 📝 المفهوم
 ## 2. ✏️ الشرح
-## 3. 💡 أمثلة
+## 3. 💡 أمثلة مغربية
 ## 4. ✅ الخلاصة
 
 أجب بالعربية الفصحى.
@@ -254,17 +256,17 @@ PROMPT_TARBIA_ISLAMIA = """
 📚 **التمرين** :
 {contenu}
 
-**القرآن :**
-## 1. 📖 الآيات
-## 2. 📝 المعنى
-## 3. 💡 المفردات
-## 4. ✅ الأحكام
+**القرآن الكريم :**
+## 1. 📖 الآيات والسورة
+## 2. 📝 المعنى الإجمالي
+## 3. 💡 شرح المفردات
+## 4. ✅ الأحكام والتوجيهات
 
-**الحديث :**
-## 1. 📖 النص
-## 2. 📝 الراوي
-## 3. 💡 الشرح
-## 4. ✅ الدلالات
+**الحديث النبوي :**
+## 1. 📖 نص الحديث
+## 2. 📝 الراوي والمصدر
+## 3. 💡 شرح المفردات
+## 4. ✅ المعنى والدلالات
 
 **العقيدة :**
 ## 1. 📝 المفهوم
@@ -272,49 +274,49 @@ PROMPT_TARBIA_ISLAMIA = """
 ## 3. ✅ الشرح
 ## 4. 💡 التطبيق
 
-**الفقه (مالكي) :**
-## 1. 📝 الحكم
+**الفقه (المذهب المالكي) :**
+## 1. 📝 الحكم الشرعي
 ## 2. 🔍 الدليل
-## 3. ✏️ الشروط
-## 4. ✅ التطبيق
+## 3. ✏️ الشروط والأركان
+## 4. ✅ التطبيق العملي
 
-**السيرة :**
-## 1. 📅 الحدث
+**السيرة النبوية :**
+## 1. 📅 الحدث وتاريخه
 ## 2. 👥 الشخصيات
 ## 3. 🔍 السياق
-## 4. 💡 الدروس
+## 4. 💡 الدروس والعبر
 
-**الأخلاق :**
-## 1. 📝 الخلق
+**الأخلاق والقيم :**
+## 1. 📝 الخلق/القيمة
 ## 2. 🔍 الأدلة
 ## 3. 💡 التطبيق
 ## 4. ✅ الفوائد
 
-⚠️ اعتمد على المذهب المالكي.
+⚠️ اعتمد على المذهب المالكي (المعتمد في المغرب).
 أجب بالعربية الفصحى.
 """
 
 PROMPT_COURS = """
-Tu es un professeur de **{matiere}** au collège au Maroc.
-Niveau : {niveau}
-Langue : {langue}
+أنت أستاذ **{matiere}** في الإعدادي بالمغرب.
+المستوى : {niveau}
+اللغة : {langue}
 
-📚 **Cours** : {nom_cours}
+📚 **الدرس المطلوب** : {nom_cours}
 
-## 1. 📖 Définition simple
-## 2. 📐 Formules / Règles
-## 3. 💡 Exemples (2-3)
-## 4. 🎯 Méthode de résolution
-## 5. ⚠️ Erreurs fréquentes
-## 6. 🎯 Exercices d'application
-## 7. 📝 Fiche mémo
-## 8. 🔗 Liens avec d'autres cours
-## 9. 🇲🇦 Exemple marocain
+## 1. 📖 تعريف مبسط
+## 2. 📐 الصيغ / القواعد المهمة
+## 3. 💡 أمثلة ملموسة (2-3)
+## 4. 🎯 منهجية الحل
+## 5. ⚠️ أخطاء شائعة
+## 6. 🎯 تمارين تطبيقية (مع الحلول)
+## 7. 📝 ملخص للحفظ
+## 8. 🔗 روابط مع دروس أخرى
+## 9. 🇲🇦 مثال من المقرر المغربي
 """
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 📋 DICTIONNAIRES
+# 📋 القواميس
 # ═══════════════════════════════════════════════════════════════════
 
 PROMPTS_MATIERES = {
@@ -329,46 +331,45 @@ PROMPTS_MATIERES = {
 }
 
 MATIERES = {
-    "📐 Mathématiques": "math",
-    "⚗️ Physique-Chimie": "physique",
-    "🌍 Français": "francais",
-    "🕌 Arabe": "arabe",
-    "🇬🇧 Anglais": "anglais",
-    "📖 SVT": "svt",
-    "🏛️ Histoire-Géo": "ijtima3iyat",
-    "☪️ Éducation Islamique": "tarbia",
+    "📐 الرياضيات": "math",
+    "⚗️ الفيزياء والكيمياء": "physique",
+    "🌍 اللغة الفرنسية": "francais",
+    "🕌 اللغة العربية": "arabe",
+    "🇬🇧 اللغة الإنجليزية": "anglais",
+    "📖 علوم الحياة والأرض": "svt",
+    "🏛️ الاجتماعيات": "ijtima3iyat",
+    "☪️ التربية الإسلامية": "tarbia",
 }
 
 NOMS_MATIERES = {
-    "math": "Mathématiques",
-    "physique": "Physique-Chimie",
-    "francais": "Français",
-    "arabe": "Arabe",
-    "anglais": "Anglais",
-    "svt": "SVT",
-    "ijtima3iyat": "Histoire-Géo",
-    "tarbia": "Éducation Islamique",
+    "math": "الرياضيات",
+    "physique": "الفيزياء والكيمياء",
+    "francais": "اللغة الفرنسية",
+    "arabe": "اللغة العربية",
+    "anglais": "اللغة الإنجليزية",
+    "svt": "علوم الحياة والأرض",
+    "ijtima3iyat": "الاجتماعيات",
+    "tarbia": "التربية الإسلامية",
 }
 
 NIVEAUX = {
-    "1ère année collège": "1ere_college",
-    "2ème année collège": "2eme_college",
-    "3ème année collège": "3eme_college",
+    "السنة الأولى إعدادي": "1ere_college",
+    "السنة الثانية إعدادي": "2eme_college",
+    "السنة الثالثة إعدادي": "3eme_college",
 }
 
 LANGUES = {
-    "🇫🇷 Français": "fr",
     "🇲🇦 العربية": "ar",
+    "🇫🇷 Français": "fr",
     "🇬🇧 English": "en",
 }
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 🤖 SERVICE GEMINI (nouvelle API)
+# 🤖 خدمة Gemini
 # ═══════════════════════════════════════════════════════════════════
 
 def get_generation_config():
-    """Config de génération pour Gemini"""
     return types.GenerateContentConfig(
         temperature=0.3,
         top_p=0.95,
@@ -379,13 +380,10 @@ def get_generation_config():
 
 
 def preparer_parts(prompt_texte, image=None, pdf_bytes=None):
-    """Préparer les 'parts' du contenu multimodal"""
     parts = [types.Part.from_text(text=prompt_texte)]
 
     if image is not None:
-        # Convertir PIL Image en bytes PNG
-        import io as _io
-        buf = _io.BytesIO()
+        buf = io.BytesIO()
         image.save(buf, format="PNG")
         parts.append(
             types.Part.from_bytes(
@@ -404,11 +402,10 @@ def preparer_parts(prompt_texte, image=None, pdf_bytes=None):
 
 
 def resoudre_exercice(matiere, niveau, langue, texte, image=None, pdf_bytes=None):
-    """Résoudre un exercice"""
     prompt = PROMPTS_MATIERES[matiere].format(
         niveau=niveau,
         langue=langue,
-        contenu=texte or "[Voir pièce jointe]"
+        contenu=texte or "[انظر المرفق]"
     )
     parts = preparer_parts(prompt, image, pdf_bytes)
     response = client.models.generate_content(
@@ -420,34 +417,32 @@ def resoudre_exercice(matiere, niveau, langue, texte, image=None, pdf_bytes=None
 
 
 def resoudre_multi_exercices(matiere, niveau, langue, exercices):
-    """Résoudre plusieurs exercices"""
     nom_matiere = NOMS_MATIERES[matiere]
     intro = f"""
-Tu es un professeur de {nom_matiere} au collège au Maroc.
-Niveau : {niveau}
-Langue : {langue}
+أنت أستاذ {nom_matiere} في الإعدادي بالمغرب.
+المستوى : {niveau}
+اللغة : {langue}
 
-Résous {len(exercices)} exercices SÉPARÉMENT.
-Pour CHAQUE exercice, donne une solution complète.
+حل {len(exercices)} تمارين بشكل منفصل.
+لكل تمرين، أعط الحل الكامل والمفصل.
 """
     parts = [types.Part.from_text(text=intro)]
 
     for i, ex in enumerate(exercices, 1):
         parts.append(types.Part.from_text(
-            text=f"\n\n═══════════════════════════════\n📝 EXERCICE N°{i}\n═══════════════════════════════\n"
+            text=f"\n\n═══════════════════════════════\n📝 التمرين رقم {i}\n═══════════════════════════════\n"
         ))
         if ex.get("texte"):
             parts.append(types.Part.from_text(text=ex["texte"]))
         if ex.get("image") is not None:
-            import io as _io
-            buf = _io.BytesIO()
+            buf = io.BytesIO()
             ex["image"].save(buf, format="PNG")
             parts.append(
                 types.Part.from_bytes(data=buf.getvalue(), mime_type="image/png")
             )
 
     parts.append(types.Part.from_text(
-        text="\n\nSépare les solutions par :\n═══ SOLUTION EXERCICE N°X ═══"
+        text="\n\nافصل الحلول بـ :\n═══ حل التمرين رقم X ═══"
     ))
 
     response = client.models.generate_content(
@@ -459,7 +454,6 @@ Pour CHAQUE exercice, donne une solution complète.
 
 
 def expliquer_cours(nom_cours, matiere, niveau, langue):
-    """Expliquer un cours détaillé"""
     nom_matiere = NOMS_MATIERES.get(matiere, matiere)
     prompt = PROMPT_COURS.format(
         matiere=nom_matiere,
@@ -476,9 +470,8 @@ def expliquer_cours(nom_cours, matiere, niveau, langue):
 
 
 def poser_question(question, matiere):
-    """Question libre"""
-    contexte = f"Tu es un professeur de {NOMS_MATIERES[matiere]} au collège au Maroc."
-    prompt = f"{contexte}\n\n❓ Question : {question}"
+    contexte = f"أنت أستاذ {NOMS_MATIERES[matiere]} في الإعدادي بالمغرب."
+    prompt = f"{contexte}\n\n❓ السؤال : {question}"
     response = client.models.generate_content(
         model=MODEL_NAME,
         contents=[types.Part.from_text(text=prompt)],
@@ -488,7 +481,7 @@ def poser_question(question, matiere):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 🎨 CSS
+# 🎨 التنسيق
 # ═══════════════════════════════════════════════════════════════════
 
 st.markdown("""
@@ -527,80 +520,80 @@ st.markdown("""
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 🏠 HEADER
+# 🏠 العنوان
 # ═══════════════════════════════════════════════════════════════════
 
 st.markdown("""
 <div class="main-header">
     <h1>🎓 9rayti</h1>
-    <p>Ton professeur particulier intelligent - Powered by Google Gemini 🤖</p>
+    <p>أستاذك الخاص الذكي - Powered by Google Gemini 🤖</p>
 </div>
 """, unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 📊 SIDEBAR
+# 📊 الشريط الجانبي
 # ═══════════════════════════════════════════════════════════════════
 
 with st.sidebar:
-    st.title("⚙️ Configuration")
+    st.title("⚙️ الإعدادات")
     st.markdown("---")
 
     matiere_label = st.selectbox(
-        "📚 Matière",
+        "📚 المادة",
         options=list(MATIERES.keys()),
         index=0
     )
     matiere = MATIERES[matiere_label]
 
     niveau_label = st.selectbox(
-        "🎯 Niveau",
+        "🎯 المستوى",
         options=list(NIVEAUX.keys()),
         index=2
     )
     niveau = NIVEAUX[niveau_label]
 
     langue_label = st.selectbox(
-        "🌍 Langue de réponse",
+        "🌍 لغة الجواب",
         options=list(LANGUES.keys()),
         index=0
     )
     langue = LANGUES[langue_label]
 
     st.markdown("---")
-    st.markdown("### 📊 Stats")
-    st.metric("Matières", "8")
-    st.metric("Niveaux", "3")
-    st.caption(f"🤖 Modèle : {MODEL_NAME}")
+    st.markdown("### 📊 إحصائيات")
+    st.metric("المواد", "8")
+    st.metric("المستويات", "3")
+    st.caption(f"🤖 النموذج : {MODEL_NAME}")
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 🎯 ONGLETS
+# 🎯 التبويبات
 # ═══════════════════════════════════════════════════════════════════
 
 tab1, tab2, tab3, tab4 = st.tabs([
-    "✏️ Résoudre un exercice",
-    "📚📚 Multi-exercices",
-    "📖 Expliquer un cours",
-    "💬 Poser une question"
+    "✏️ حل تمرين",
+    "📚📚 تمارين متعددة",
+    "📖 شرح درس",
+    "💬 طرح سؤال"
 ])
 
 
 # ─────────────────────────────────────────────────────────────────
-# ONGLET 1 : RÉSOUDRE UN EXERCICE
+# التبويب 1 : حل تمرين
 # ─────────────────────────────────────────────────────────────────
 
 with tab1:
-    st.header(f"✏️ Résoudre un exercice — {matiere_label}")
+    st.header(f"✏️ حل تمرين — {matiere_label}")
 
     col1, col2 = st.columns([1, 1])
 
     with col1:
-        st.subheader("📥 Entrée")
+        st.subheader("📥 المدخل")
 
         mode = st.radio(
-            "Comment veux-tu donner l'exercice ?",
-            ["📷 Photo", "📄 PDF", "⌨️ Texte"],
+            "كيف تريد إدخال التمرين ؟",
+            ["📷 صورة", "📄 PDF", "⌨️ نص"],
             horizontal=True,
             key="mode_solve"
         )
@@ -609,53 +602,53 @@ with tab1:
         pdf_bytes = None
         texte = ""
 
-        if mode == "📷 Photo":
+        if mode == "📷 صورة":
             uploaded_image = st.file_uploader(
-                "Choisis une photo",
+                "اختر صورة التمرين",
                 type=["jpg", "jpeg", "png", "webp"],
                 key="img_single"
             )
             if uploaded_image:
                 image = Image.open(uploaded_image)
-                st.image(image, caption="📷 Exercice", use_column_width=True)
+                st.image(image, caption="📷 التمرين", use_column_width=True)
 
         elif mode == "📄 PDF":
             uploaded_pdf = st.file_uploader(
-                "Choisis un PDF",
+                "اختر ملف PDF",
                 type=["pdf"],
                 key="pdf_single"
             )
             if uploaded_pdf:
                 pdf_bytes = uploaded_pdf.read()
-                st.success(f"✅ PDF chargé ({len(pdf_bytes) // 1024} KB)")
+                st.success(f"✅ تم تحميل PDF ({len(pdf_bytes) // 1024} KB)")
 
         else:
             texte = st.text_area(
-                "Écris ton exercice",
+                "اكتب التمرين هنا",
                 height=200,
-                placeholder="Exemple : Résoudre 2x + 5 = 13",
+                placeholder="مثال : حل المعادلة 2x + 5 = 13",
                 key="txt_single"
             )
 
-        if mode != "⌨️ Texte":
+        if mode != "⌨️ نص":
             texte_extra = st.text_area(
-                "📝 Texte additionnel (optionnel)",
+                "📝 نص إضافي (اختياري)",
                 height=100,
                 key="txt_extra"
             )
             if texte_extra:
                 texte = texte_extra
 
-        bouton = st.button("🚀 Résoudre", use_container_width=True, key="btn_solve")
+        bouton = st.button("🚀 حل التمرين", use_container_width=True, key="btn_solve")
 
     with col2:
-        st.subheader("✅ Solution")
+        st.subheader("✅ الحل")
 
         if bouton:
             if not image and not pdf_bytes and not texte.strip():
-                st.warning("⚠️ Ajoute une photo, un PDF ou du texte !")
+                st.warning("⚠️ أضف صورة أو PDF أو نصا !")
             else:
-                with st.spinner("🤖 Gemini réfléchit..."):
+                with st.spinner("🤖 Gemini يفكر..."):
                     debut = time.time()
                     try:
                         solution = resoudre_exercice(
@@ -667,31 +660,31 @@ with tab1:
                             pdf_bytes=pdf_bytes
                         )
                         temps = round(time.time() - debut, 2)
-                        st.success(f"✅ Solution trouvée en {temps}s")
+                        st.success(f"✅ تم الحل في {temps} ثانية")
                         st.markdown("---")
                         st.markdown(solution)
                         st.download_button(
-                            "📥 Télécharger",
+                            "📥 تحميل الحل",
                             data=solution,
                             file_name=f"solution_{matiere}.md",
                             mime="text/markdown"
                         )
                     except Exception as e:
-                        st.error(f"❌ Erreur : {str(e)}")
+                        st.error(f"❌ خطأ : {str(e)}")
         else:
-            st.info("👈 Configure puis clique sur Résoudre")
+            st.info("👈 أعد الإعداد ثم اضغط على حل التمرين")
 
 
 # ─────────────────────────────────────────────────────────────────
-# ONGLET 2 : MULTI-EXERCICES
+# التبويب 2 : تمارين متعددة
 # ─────────────────────────────────────────────────────────────────
 
 with tab2:
-    st.header(f"📚📚 Multi-exercices — {matiere_label}")
-    st.info("💡 Ajoute jusqu'à 10 exercices")
+    st.header(f"📚📚 تمارين متعددة — {matiere_label}")
+    st.info("💡 أضف حتى 10 تمارين")
 
     nb_exercices = st.number_input(
-        "Nombre d'exercices",
+        "عدد التمارين",
         min_value=1,
         max_value=10,
         value=2,
@@ -701,19 +694,19 @@ with tab2:
     exercices = []
 
     for i in range(int(nb_exercices)):
-        with st.expander(f"📝 Exercice N°{i+1}", expanded=(i == 0)):
+        with st.expander(f"📝 التمرين رقم {i+1}", expanded=(i == 0)):
             col1, col2 = st.columns(2)
 
             with col1:
                 img_file = st.file_uploader(
-                    f"📷 Photo {i+1}",
+                    f"📷 صورة {i+1}",
                     type=["jpg", "jpeg", "png"],
                     key=f"img_multi_{i}"
                 )
 
             with col2:
                 txt = st.text_area(
-                    f"⌨️ Texte {i+1}",
+                    f"⌨️ نص {i+1}",
                     key=f"txt_multi_{i}",
                     height=100
                 )
@@ -727,11 +720,11 @@ with tab2:
             if ex:
                 exercices.append(ex)
 
-    if st.button("🚀 Résoudre tous", use_container_width=True, key="btn_multi"):
+    if st.button("🚀 حل جميع التمارين", use_container_width=True, key="btn_multi"):
         if not exercices:
-            st.warning("⚠️ Ajoute au moins un exercice !")
+            st.warning("⚠️ أضف تمرينا على الأقل !")
         else:
-            with st.spinner(f"🤖 Résolution de {len(exercices)} exercices..."):
+            with st.spinner(f"🤖 جارٍ حل {len(exercices)} تمارين..."):
                 debut = time.time()
                 try:
                     solution = resoudre_multi_exercices(
@@ -741,45 +734,45 @@ with tab2:
                         exercices=exercices
                     )
                     temps = round(time.time() - debut, 2)
-                    st.success(f"✅ {len(exercices)} exercices résolus en {temps}s")
+                    st.success(f"✅ تم حل {len(exercices)} تمارين في {temps} ثانية")
                     st.markdown("---")
                     st.markdown(solution)
                     st.download_button(
-                        "📥 Télécharger",
+                        "📥 تحميل الحلول",
                         data=solution,
                         file_name=f"solutions_{matiere}.md",
                         mime="text/markdown"
                     )
                 except Exception as e:
-                    st.error(f"❌ Erreur : {str(e)}")
+                    st.error(f"❌ خطأ : {str(e)}")
 
 
 # ─────────────────────────────────────────────────────────────────
-# ONGLET 3 : EXPLIQUER UN COURS
+# التبويب 3 : شرح درس
 # ─────────────────────────────────────────────────────────────────
 
 with tab3:
-    st.header(f"📖 Expliquer un cours — {matiere_label}")
+    st.header(f"📖 شرح درس — {matiere_label}")
 
     col1, col2 = st.columns([1, 2])
 
     with col1:
-        st.subheader("📝 Nom du cours")
+        st.subheader("📝 اسم الدرس")
 
         nom_cours = st.text_input(
-            "Entre le nom du cours",
-            placeholder="Ex: Théorème de Pythagore",
+            "أدخل اسم الدرس",
+            placeholder="مثال : نظرية فيثاغورس",
             key="nom_cours"
         )
 
-        st.markdown("**💡 Suggestions :**")
+        st.markdown("**💡 اقتراحات :**")
         suggestions = {
-            "math": ["Théorème de Pythagore", "Théorème de Thalès", "Équations 1er degré"],
-            "physique": ["Loi d'Ohm", "Poids et masse", "Vitesse"],
+            "math": ["نظرية فيثاغورس", "نظرية طاليس", "معادلات الدرجة الأولى"],
+            "physique": ["قانون أوم", "الوزن والكتلة", "السرعة"],
             "francais": ["Le passé composé", "Les figures de style"],
             "arabe": ["المبتدأ والخبر", "الفعل الماضي"],
             "anglais": ["Present Simple", "Past Continuous"],
-            "svt": ["La digestion", "La photosynthèse"],
+            "svt": ["الهضم", "التركيب الضوئي"],
             "ijtima3iyat": ["الحرب العالمية الأولى", "السكان في المغرب"],
             "tarbia": ["أركان الإسلام", "سورة الفاتحة"],
         }
@@ -788,16 +781,16 @@ with tab3:
             if st.button(f"📌 {s}", key=f"sug_{s}"):
                 nom_cours = s
 
-        bouton_cours = st.button("📖 Expliquer", use_container_width=True, key="btn_cours")
+        bouton_cours = st.button("📖 شرح الدرس", use_container_width=True, key="btn_cours")
 
     with col2:
-        st.subheader("📚 Explication")
+        st.subheader("📚 الشرح")
 
         if bouton_cours:
             if not nom_cours.strip():
-                st.warning("⚠️ Entre le nom du cours !")
+                st.warning("⚠️ أدخل اسم الدرس !")
             else:
-                with st.spinner("🤖 Préparation du cours..."):
+                with st.spinner("🤖 جارٍ تحضير الدرس..."):
                     debut = time.time()
                     try:
                         explication = expliquer_cours(
@@ -807,34 +800,34 @@ with tab3:
                             langue=langue
                         )
                         temps = round(time.time() - debut, 2)
-                        st.success(f"✅ Cours prêt en {temps}s")
+                        st.success(f"✅ الدرس جاهز في {temps} ثانية")
                         st.markdown("---")
                         st.markdown(explication)
                         st.download_button(
-                            "📥 Télécharger",
+                            "📥 تحميل الدرس",
                             data=explication,
                             file_name=f"cours_{nom_cours}.md",
                             mime="text/markdown"
                         )
                     except Exception as e:
-                        st.error(f"❌ Erreur : {str(e)}")
+                        st.error(f"❌ خطأ : {str(e)}")
         else:
-            st.info("👈 Entre le nom du cours")
+            st.info("👈 أدخل اسم الدرس")
 
 
 # ─────────────────────────────────────────────────────────────────
-# ONGLET 4 : QUESTION LIBRE
+# التبويب 4 : طرح سؤال
 # ─────────────────────────────────────────────────────────────────
 
 with tab4:
-    st.header("💬 Poser une question")
+    st.header("💬 طرح سؤال")
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
     col_a, col_b = st.columns([4, 1])
     with col_b:
-        if st.button("🗑️ Effacer", key="btn_reset"):
+        if st.button("🗑️ مسح", key="btn_reset"):
             st.session_state.messages = []
             st.rerun()
 
@@ -842,7 +835,7 @@ with tab4:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    question = st.chat_input("Pose ta question...")
+    question = st.chat_input("اطرح سؤالك...")
 
     if question:
         st.session_state.messages.append({"role": "user", "content": question})
@@ -850,7 +843,7 @@ with tab4:
             st.markdown(question)
 
         with st.chat_message("assistant"):
-            with st.spinner("🤖 Gemini réfléchit..."):
+            with st.spinner("🤖 Gemini يفكر..."):
                 try:
                     reponse = poser_question(question, matiere)
                     st.markdown(reponse)
@@ -858,11 +851,11 @@ with tab4:
                         {"role": "assistant", "content": reponse}
                     )
                 except Exception as e:
-                    st.error(f"❌ Erreur : {str(e)}")
+                    st.error(f"❌ خطأ : {str(e)}")
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 📄 FOOTER
+# 📄 التذييل
 # ═══════════════════════════════════════════════════════════════════
 
 st.markdown("---")
