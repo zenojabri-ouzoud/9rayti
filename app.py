@@ -23,6 +23,7 @@ st.set_page_config(
     page_icon="🎓",
     layout="wide",
     initial_sidebar_state="expanded"
+)
 
 
 def get_config(key, default=""):
