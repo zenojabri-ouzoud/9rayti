@@ -1,18 +1,18 @@
 """
 ═══════════════════════════════════════════════════════════════════
    🎓 9rayti - Application de révision pour collégiens marocains
-   Powered by Google Gemini 🤖
+   Powered by Google Gemini (nouvelle API google-genai) 🤖
 ═══════════════════════════════════════════════════════════════════
 🚀 LANCEMENT : streamlit run app.py
 ═══════════════════════════════════════════════════════════════════
 """
 
 import os
-import io
 import time
 from PIL import Image
 import streamlit as st
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 
 # ═══════════════════════════════════════════════════════════════════
@@ -37,7 +37,7 @@ def get_config(key, default=""):
 
 
 GEMINI_API_KEY = get_config("GEMINI_API_KEY")
-MODEL_NAME = get_config("MODEL_NAME", "gemini-1.5-flash")
+MODEL_NAME = get_config("MODEL_NAME", "gemini-2.0-flash")
 
 if not GEMINI_API_KEY:
     st.error("❌ Clé GEMINI_API_KEY manquante !")
@@ -46,7 +46,8 @@ if not GEMINI_API_KEY:
     st.info("📝 Crée un fichier `.env` à la racine du projet.")
     st.stop()
 
-genai.configure(api_key=GEMINI_API_KEY)
+# Nouveau client Gemini
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -365,48 +366,63 @@ LANGUES = {
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 🤖 SERVICE GEMINI
+# 🤖 SERVICE GEMINI (nouvelle API)
 # ═══════════════════════════════════════════════════════════════════
 
-@st.cache_resource
-def get_gemini_model():
-    return genai.GenerativeModel(
-        model_name=MODEL_NAME,
-        generation_config={
-            "temperature": 0.3,
-            "top_p": 0.95,
-            "top_k": 40,
-            "max_output_tokens": 8192,
-        },
+def get_generation_config():
+    """Config de génération pour Gemini"""
+    return types.GenerateContentConfig(
+        temperature=0.3,
+        top_p=0.95,
+        top_k=40,
+        max_output_tokens=8192,
         system_instruction=SYSTEM_PROMPT
     )
 
 
-def preparer_contenu(prompt_texte, image=None, pdf_bytes=None):
-    contenu = [prompt_texte]
+def preparer_parts(prompt_texte, image=None, pdf_bytes=None):
+    """Préparer les 'parts' du contenu multimodal"""
+    parts = [types.Part.from_text(text=prompt_texte)]
+
     if image is not None:
-        contenu.append(image)
+        # Convertir PIL Image en bytes PNG
+        import io as _io
+        buf = _io.BytesIO()
+        image.save(buf, format="PNG")
+        parts.append(
+            types.Part.from_bytes(
+                data=buf.getvalue(),
+                mime_type="image/png"
+            )
+        )
     elif pdf_bytes is not None:
-        contenu.append({
-            "mime_type": "application/pdf",
-            "data": pdf_bytes
-        })
-    return contenu
+        parts.append(
+            types.Part.from_bytes(
+                data=pdf_bytes,
+                mime_type="application/pdf"
+            )
+        )
+    return parts
 
 
 def resoudre_exercice(matiere, niveau, langue, texte, image=None, pdf_bytes=None):
+    """Résoudre un exercice"""
     prompt = PROMPTS_MATIERES[matiere].format(
         niveau=niveau,
         langue=langue,
         contenu=texte or "[Voir pièce jointe]"
     )
-    contenu = preparer_contenu(prompt, image, pdf_bytes)
-    model = get_gemini_model()
-    response = model.generate_content(contenu)
+    parts = preparer_parts(prompt, image, pdf_bytes)
+    response = client.models.generate_content(
+        model=MODEL_NAME,
+        contents=parts,
+        config=get_generation_config()
+    )
     return response.text
 
 
 def resoudre_multi_exercices(matiere, niveau, langue, exercices):
+    """Résoudre plusieurs exercices"""
     nom_matiere = NOMS_MATIERES[matiere]
     intro = f"""
 Tu es un professeur de {nom_matiere} au collège au Maroc.
@@ -416,23 +432,36 @@ Langue : {langue}
 Résous {len(exercices)} exercices SÉPARÉMENT.
 Pour CHAQUE exercice, donne une solution complète.
 """
-    contenu = [intro]
+    parts = [types.Part.from_text(text=intro)]
+
     for i, ex in enumerate(exercices, 1):
-        contenu.append(f"\n\n═══════════════════════════════")
-        contenu.append(f"📝 EXERCICE N°{i}")
-        contenu.append(f"═══════════════════════════════\n")
+        parts.append(types.Part.from_text(
+            text=f"\n\n═══════════════════════════════\n📝 EXERCICE N°{i}\n═══════════════════════════════\n"
+        ))
         if ex.get("texte"):
-            contenu.append(ex["texte"])
+            parts.append(types.Part.from_text(text=ex["texte"]))
         if ex.get("image") is not None:
-            contenu.append(ex["image"])
-    contenu.append("\n\nSépare les solutions par :")
-    contenu.append("═══ SOLUTION EXERCICE N°X ═══")
-    model = get_gemini_model()
-    response = model.generate_content(contenu)
+            import io as _io
+            buf = _io.BytesIO()
+            ex["image"].save(buf, format="PNG")
+            parts.append(
+                types.Part.from_bytes(data=buf.getvalue(), mime_type="image/png")
+            )
+
+    parts.append(types.Part.from_text(
+        text="\n\nSépare les solutions par :\n═══ SOLUTION EXERCICE N°X ═══"
+    ))
+
+    response = client.models.generate_content(
+        model=MODEL_NAME,
+        contents=parts,
+        config=get_generation_config()
+    )
     return response.text
 
 
 def expliquer_cours(nom_cours, matiere, niveau, langue):
+    """Expliquer un cours détaillé"""
     nom_matiere = NOMS_MATIERES.get(matiere, matiere)
     prompt = PROMPT_COURS.format(
         matiere=nom_matiere,
@@ -440,8 +469,23 @@ def expliquer_cours(nom_cours, matiere, niveau, langue):
         langue=langue,
         nom_cours=nom_cours
     )
-    model = get_gemini_model()
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(
+        model=MODEL_NAME,
+        contents=[types.Part.from_text(text=prompt)],
+        config=get_generation_config()
+    )
+    return response.text
+
+
+def poser_question(question, matiere):
+    """Question libre"""
+    contexte = f"Tu es un professeur de {NOMS_MATIERES[matiere]} au collège au Maroc."
+    prompt = f"{contexte}\n\n❓ Question : {question}"
+    response = client.models.generate_content(
+        model=MODEL_NAME,
+        contents=[types.Part.from_text(text=prompt)],
+        config=get_generation_config()
+    )
     return response.text
 
 
@@ -755,7 +799,7 @@ with tab3:
             if not nom_cours.strip():
                 st.warning("⚠️ Entre le nom du cours !")
             else:
-                with st.spinner(f"🤖 Préparation du cours..."):
+                with st.spinner("🤖 Préparation du cours..."):
                     debut = time.time()
                     try:
                         explication = expliquer_cours(
@@ -810,11 +854,7 @@ with tab4:
         with st.chat_message("assistant"):
             with st.spinner("🤖 Gemini réfléchit..."):
                 try:
-                    contexte = f"Tu es un professeur de {NOMS_MATIERES[matiere]} au collège au Maroc."
-                    prompt = f"{contexte}\n\n❓ Question : {question}"
-                    model = get_gemini_model()
-                    response = model.generate_content(prompt)
-                    reponse = response.text
+                    reponse = poser_question(question, matiere)
                     st.markdown(reponse)
                     st.session_state.messages.append(
                         {"role": "assistant", "content": reponse}
